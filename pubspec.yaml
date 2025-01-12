@@ -4,8 +4,7 @@ version: 1.0.0
 repository: https://github.com/ntatko/solitaire-cmd
 
 executables:
-  solitaire:
-    main: bin/command_line_solitaire.dart
+  solitaire: command_line_solitaire
 
 environment:
   sdk: ^3.2.3
