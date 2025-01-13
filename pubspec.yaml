@@ -1,6 +1,6 @@
 name: command_line_solitaire
-description: A command-line solitaire game.
-version: 1.0.0
+description: A command-line implementation of the Klondike Solitaire game, written in dart.
+version: 1.0.1
 repository: https://github.com/ntatko/solitaire-cmd
 
 executables:

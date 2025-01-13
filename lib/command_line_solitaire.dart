@@ -2,7 +2,17 @@ import 'dart:io';
 import 'dart:math' show max, Random;
 import 'dart:collection';
 
-// Card suits using emoji
+/// A command-line implementation of Klondike Solitaire.
+///
+/// This library provides a complete implementation of the classic Klondike Solitaire
+/// card game that can be played in a terminal. It features:
+/// * Full game rules implementation
+/// * Undo/redo functionality
+/// * Auto-complete for obvious moves
+/// * Color-coded cards and cursor highlighting
+/// * Foundation building validation
+
+/// Card suits available in the game, represented by emoji symbols.
 const suits = {
   'hearts': '♥️',
   'diamonds': '♦️',
@@ -10,7 +20,7 @@ const suits = {
   'spades': '♠️',
 };
 
-// Card ranks
+/// Standard playing card ranks from Ace to King.
 const ranks = [
   'A',
   '2',
@@ -27,16 +37,35 @@ const ranks = [
   'K'
 ];
 
+/// Represents a playing card with a suit, rank, and face-up state.
+///
+/// Cards can be either face up or face down, and their display changes accordingly.
+/// Red suits (hearts and diamonds) are displayed in red when face up.
 class Card {
+  /// The suit of the card (hearts, diamonds, clubs, or spades).
   final String suit;
+
+  /// The rank of the card (A, 2-10, J, Q, K).
   final String rank;
+
+  /// Whether the card is face up (true) or face down (false).
   bool faceUp;
 
+  /// Creates a new card with the specified suit and rank.
+  ///
+  /// By default, cards are created face down unless [faceUp] is specified as true.
   Card(this.suit, this.rank, {this.faceUp = false});
 
+  /// The width of a card when displayed in the terminal.
   static const cardWidth = 9;
+
+  /// The height of a card when displayed in the terminal.
   static const cardHeight = 6;
 
+  /// Gets the lines of text that represent this card in the terminal.
+  ///
+  /// If [showTop] is true, returns the full card display (6 lines).
+  /// If false, returns only the top portion (2 lines).
   List<String> getLines({bool showTop = true}) {
     if (!faceUp) {
       // Back of card
@@ -83,36 +112,38 @@ class Card {
   }
 }
 
+/// Represents a position in the game grid using x and y coordinates.
 class Position {
+  /// The x-coordinate (column) in the game grid.
   final int x;
+
+  /// The y-coordinate (row) in the game grid.
   final int y;
+
+  /// Creates a new position with the specified coordinates.
   Position(this.x, this.y);
 }
 
-class GameMove {
-  final Position from;
-  final Position to;
-  final bool isTableauMove;
-  final bool isFoundationMove;
-  final bool isWasteMove;
-
-  GameMove(
-    this.from,
-    this.to, {
-    this.isTableauMove = false,
-    this.isFoundationMove = false,
-    this.isWasteMove = false,
-  });
-}
-
+/// Represents a complete game state that can be saved and restored.
+///
+/// Used for implementing undo/redo functionality.
 class GameState {
+  /// The tableau (main playing area) state.
   final List<List<Card>> tableau;
+
+  /// The stock (draw) pile state.
   final List<Card> stock;
+
+  /// The waste (discard) pile state.
   final List<Card> waste;
+
+  /// The foundation piles state, organized by suit.
   final Map<String, List<Card>> foundations;
 
+  /// Creates a new game state with the specified pile states.
   GameState(this.tableau, this.stock, this.waste, this.foundations);
 
+  /// Creates a deep copy of another game state.
   GameState.clone(GameState other)
       : tableau = List<List<Card>>.from(
             other.tableau.map((col) => List<Card>.from(col))),
@@ -122,26 +153,61 @@ class GameState {
             .map((key, value) => MapEntry(key, List<Card>.from(value))));
 }
 
+/// The main game class implementing Klondike Solitaire rules and gameplay.
 class KlondikeSolitaire {
+  /// The deck of cards in the game.
   late List<Card> deck;
-  late List<List<Card>> tableau;
-  late List<Card> stock;
-  late List<Card> waste;
-  late Map<String, List<Card>> foundations;
-  Position cursor = Position(0, 0);
-  bool isInTableau = true;
-  final Queue<GameState> undoStack = Queue();
-  final Queue<GameState> redoStack = Queue();
-  String? errorMessage;
-  bool gameWon = false;
-  Position? selectedPosition;
-  bool hasSelection = false;
-  bool isWasteSelected = false; // Specific flag for waste pile selection
 
+  /// The tableau (main playing area) state.
+  late List<List<Card>> tableau;
+
+  /// The stock (draw) pile state.
+  late List<Card> stock;
+
+  /// The waste (discard) pile state.
+  late List<Card> waste;
+
+  /// The foundation piles state, organized by suit.
+  late Map<String, List<Card>> foundations;
+
+  /// The current cursor position in the game grid.
+  Position cursor = Position(0, 0);
+
+  /// Whether the cursor is currently in the tableau (true) or not (false).
+  bool isInTableau = true;
+
+  /// The stack for storing undoable game states.
+  final Queue<GameState> undoStack = Queue();
+
+  /// The stack for storing redoable game states.
+  final Queue<GameState> redoStack = Queue();
+
+  /// The error message to display to the user, if any.
+  String? errorMessage;
+
+  /// Whether the game has been won.
+  bool gameWon = false;
+
+  /// The currently selected position in the game grid, if any.
+  Position? selectedPosition;
+
+  /// Whether there is currently a selection in the game.
+  bool hasSelection = false;
+
+  /// Whether the waste pile is currently selected.
+  bool isWasteSelected = false;
+
+  /// Constructs a new Klondike Solitaire game and initializes it.
   KlondikeSolitaire() {
     initializeGame();
   }
 
+  /// Creates a new Klondike Solitaire game and initializes it.
+  ///
+  /// The game starts with:
+  /// * 7 tableau piles with cascading face-down cards and one face-up card each
+  /// * A stock pile with the remaining cards
+  /// * Empty foundation piles for each suit
   void initializeGame() {
     // Create and shuffle deck
     deck = [];
@@ -173,6 +239,12 @@ class KlondikeSolitaire {
     };
   }
 
+  /// Checks if a card can be legally moved to a destination pile in the tableau.
+  ///
+  /// Rules:
+  /// * Only Kings can be placed in empty columns
+  /// * Cards must alternate colors (red/black)
+  /// * Cards must be placed in descending order (e.g., 8 on 9)
   bool isValidMove(Card card, List<Card> destination) {
     log('--- Checking move validity ---');
     log('Moving card: ${card.rank}${suits[card.suit]}');
@@ -212,6 +284,12 @@ class KlondikeSolitaire {
     return isConsecutive;
   }
 
+  /// Checks if a card can be legally moved to a foundation pile.
+  ///
+  /// Rules:
+  /// * Only Aces can start a foundation pile
+  /// * Cards must be of the same suit
+  /// * Cards must be placed in ascending order (A, 2, 3, ...)
   bool isValidFoundationMove(Card card, List<Card> foundation) {
     if (foundation.isEmpty) {
       return card.rank == 'A';
@@ -284,6 +362,9 @@ class KlondikeSolitaire {
     }
   }
 
+  /// Draws a card from the stock pile and adds it to the waste pile.
+  ///
+  /// If the stock pile is empty, it will recycle the waste pile back to the stock.
   void drawCard() {
     if (stock.isEmpty) {
       stock = waste.reversed.toList();
@@ -298,6 +379,16 @@ class KlondikeSolitaire {
     log('Drew ${card.rank}${suits[card.suit]}');
   }
 
+  /// Handles user input for game controls.
+  ///
+  /// Controls:
+  /// * Arrow keys - Move cursor
+  /// * Space - Select/Place cards
+  /// * 'd' - Draw card
+  /// * 'u' - Undo
+  /// * 'r' - Redo
+  /// * 'a' - Auto-complete
+  /// * 'q' - Quit
   void handleInput() {
     var key = stdin.readByteSync();
     switch (key) {
@@ -447,6 +538,9 @@ class KlondikeSolitaire {
     }
   }
 
+  /// Displays the current state of the game.
+  ///
+  /// This includes the tableau, foundations, stock, waste, and controls.
   void display() {
     stdout.write('\x1B[2J\x1B[H');
 
@@ -587,6 +681,9 @@ class KlondikeSolitaire {
     }
   }
 
+  /// Adds a highlight to the given text.
+  ///
+  /// This is used to highlight the cursor position in the tableau.
   String addHighlight(String text) {
     return text
         .split('\n')
@@ -594,6 +691,9 @@ class KlondikeSolitaire {
         .join('\n');
   }
 
+  /// Adds a blue highlight to the given text.
+  ///
+  /// This is used to highlight the waste pile selection.
   String addBlueHighlight(String text) {
     return text
         .split('\n')
@@ -601,6 +701,16 @@ class KlondikeSolitaire {
         .join('\n');
   }
 
+  /// Starts the game loop and handles user input.
+  ///
+  /// Controls:
+  /// * Arrow keys - Move cursor
+  /// * Space - Select/Place cards
+  /// * 'd' - Draw card
+  /// * 'u' - Undo
+  /// * 'r' - Redo
+  /// * 'a' - Auto-complete
+  /// * 'q' - Quit
   void start() {
     // Make stdin raw mode for arrow key handling
     stdin.echoMode = false;
@@ -632,6 +742,7 @@ class KlondikeSolitaire {
     log('Undid last move');
   }
 
+  /// Redoes the last undone move.
   void redo() {
     if (redoStack.isEmpty) {
       showError('Nothing to redo');
@@ -645,6 +756,7 @@ class KlondikeSolitaire {
     log('Redid last move');
   }
 
+  /// Restores the game state from a previous state.
   void restoreState(GameState state) {
     tableau = state.tableau;
     stock = state.stock;
@@ -652,6 +764,9 @@ class KlondikeSolitaire {
     foundations = state.foundations;
   }
 
+  /// Displays an error message to the user.
+  ///
+  /// This message will be displayed for 2 seconds before being cleared.
   void showError(String message) {
     errorMessage = message;
     Future.delayed(Duration(seconds: 2), () {
@@ -659,6 +774,9 @@ class KlondikeSolitaire {
     });
   }
 
+  /// Checks if the game has been won.
+  ///
+  /// This is done by checking if all foundation piles have 13 cards.
   bool checkWinCondition() {
     bool isWon = foundations.values.every((pile) => pile.length == 13);
     if (isWon && !gameWon) {
@@ -668,6 +786,10 @@ class KlondikeSolitaire {
     return isWon;
   }
 
+  /// Attempts to automatically complete obvious moves.
+  ///
+  /// This will move cards to the foundation piles when it's clearly safe to do so,
+  /// helping to speed up end-game play.
   void autoComplete() {
     bool madeMove;
     int moveCount = 0;
@@ -713,6 +835,9 @@ class KlondikeSolitaire {
     }
   }
 
+  /// Moves a card to a foundation pile.
+  ///
+  /// This function checks if the move is valid and then performs the move.
   void moveToFoundation(Card card, List<Card> source, int sourceIndex) {
     var foundation = foundations[card.suit]!;
     if (foundation.isEmpty && card.rank != 'A') {
@@ -741,8 +866,13 @@ class KlondikeSolitaire {
 
   void log(String message) {
     // No-op - logging removed
+
+    // print(message);
   }
 
+  /// Moves a card from the waste pile to the tableau.
+  ///
+  /// This function checks if the move is valid and then performs the move.
   void moveFromWaste(Position to) {
     if (waste.isEmpty) return;
     if (to.x >= 7) return;
