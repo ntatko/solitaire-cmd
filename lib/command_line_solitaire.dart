@@ -367,14 +367,18 @@ class KlondikeSolitaire {
   /// If the stock pile is empty, it will recycle the waste pile back to the stock.
   void drawCard() {
     if (stock.isEmpty) {
-      stock = waste.reversed.toList();
+      // When recycling, make sure all cards are face down in stock
+      stock = waste.reversed.map((card) {
+        card.faceUp = false; // Set all cards face down
+        return card;
+      }).toList();
       waste.clear();
       log('Recycled waste pile back to stock');
       return;
     }
 
     var card = stock.removeLast();
-    card.faceUp = true;
+    card.faceUp = true; // Only flip when moving to waste
     waste.add(card);
     log('Drew ${card.rank}${suits[card.suit]}');
   }
@@ -440,47 +444,48 @@ class KlondikeSolitaire {
 
       case 67: // Right arrow
         if (isInTableau) {
-          if (cursor.x < 6) {
-            var newX = cursor.x + 1;
-            var newColumn = tableau[newX];
-            var newY = cursor.y;
-            while (newY < newColumn.length && !newColumn[newY].faceUp) {
-              newY++;
-            }
-            if (newY >= newColumn.length) {
-              newY = cursor.y;
-              while (newY >= 0 &&
-                  (newY >= newColumn.length || !newColumn[newY].faceUp)) {
-                newY--;
-              }
-            }
-            cursor = Position(newX, max(0, newY));
+          // Wrap around in tableau
+          var newX = (cursor.x + 1) % 7;
+          var newColumn = tableau[newX];
+          var newY = cursor.y;
+          while (newY < newColumn.length && !newColumn[newY].faceUp) {
+            newY++;
           }
-        } else if (!isInTableau && cursor.x < 5) {
-          cursor = Position(cursor.x + 1, 0);
+          if (newY >= newColumn.length) {
+            newY = cursor.y;
+            while (newY >= 0 &&
+                (newY >= newColumn.length || !newColumn[newY].faceUp)) {
+              newY--;
+            }
+          }
+          cursor = Position(newX, max(0, newY));
+        } else {
+          // Wrap around in top row (0-5 for stock, waste, and foundations)
+          cursor = Position((cursor.x + 1) % 6, 0);
         }
         break;
 
       case 68: // Left arrow
         if (isInTableau) {
-          if (cursor.x > 0) {
-            var newX = cursor.x - 1;
-            var newColumn = tableau[newX];
-            var newY = cursor.y;
-            while (newY < newColumn.length && !newColumn[newY].faceUp) {
-              newY++;
-            }
-            if (newY >= newColumn.length) {
-              newY = cursor.y;
-              while (newY >= 0 &&
-                  (newY >= newColumn.length || !newColumn[newY].faceUp)) {
-                newY--;
-              }
-            }
-            cursor = Position(newX, max(0, newY));
+          // Wrap around in tableau
+          var newX = cursor.x - 1;
+          if (newX < 0) newX = 6; // Wrap to rightmost column
+          var newColumn = tableau[newX];
+          var newY = cursor.y;
+          while (newY < newColumn.length && !newColumn[newY].faceUp) {
+            newY++;
           }
-        } else if (!isInTableau && cursor.x > 0) {
-          cursor = Position(cursor.x - 1, 0);
+          if (newY >= newColumn.length) {
+            newY = cursor.y;
+            while (newY >= 0 &&
+                (newY >= newColumn.length || !newColumn[newY].faceUp)) {
+              newY--;
+            }
+          }
+          cursor = Position(newX, max(0, newY));
+        } else {
+          // Wrap around in top row
+          cursor = Position(cursor.x - 1 < 0 ? 5 : cursor.x - 1, 0);
         }
         break;
 
@@ -534,6 +539,10 @@ class KlondikeSolitaire {
         exit(0);
 
       case 27: // Escape key
+        break;
+
+      case 109: // 'm' key
+        autoMoveCard();
         break;
     }
   }
@@ -638,7 +647,8 @@ class KlondikeSolitaire {
     displayTableau();
 
     stdout.writeln('\nControls:');
-    stdout.writeln('Arrow keys - Move cursor    Space - Select/Place cards');
+    stdout.writeln(
+        'Arrow keys - Move cursor    Space - Select/Place cards    m - Auto-move card');
     stdout.writeln(
         'd - Draw card    u - Undo    r - Redo    a - Auto-complete    q - Quit');
 
@@ -673,7 +683,16 @@ class KlondikeSolitaire {
 
             stdout.write('$line ');
           } else {
-            stdout.write(' ' * 10);
+            // Show highlighted empty space when cursor is here
+            var emptySpace = ' ' * 9;
+            if (isInTableau && cursor.x == col && cursor.y == row) {
+              emptySpace = '╭───────╮';
+              if (cardLine == 1) {
+                emptySpace = '╰───────╯';
+              }
+              emptySpace = addHighlight(emptySpace);
+            }
+            stdout.write('$emptySpace ');
           }
         }
         stdout.writeln();
@@ -908,6 +927,72 @@ class KlondikeSolitaire {
 
     // Check win condition after move
     checkWinCondition();
+  }
+
+  /// Automatically moves the card under the cursor to any valid position.
+  ///
+  /// This will try to move the card in this order:
+  /// 1. To a foundation pile if valid
+  /// 2. To a tableau pile if valid
+  /// Returns true if a move was made.
+  void autoMoveCard() {
+    // Can't move if no card is under cursor
+    if (isInTableau) {
+      if (cursor.y >= tableau[cursor.x].length) return;
+      var card = tableau[cursor.x][cursor.y];
+      if (!card.faceUp) return;
+
+      // First try foundation
+      var foundation = foundations[card.suit]!;
+      if (isValidFoundationMove(card, foundation)) {
+        saveState();
+        foundation.add(tableau[cursor.x].removeLast());
+        if (tableau[cursor.x].isNotEmpty && !tableau[cursor.x].last.faceUp) {
+          tableau[cursor.x].last.faceUp = true;
+        }
+        log('Auto-moved ${card.rank}${suits[card.suit]} to foundation');
+        return;
+      }
+
+      // Then try tableau
+      for (var i = 0; i < 7; i++) {
+        if (i == cursor.x) continue; // Skip current column
+        if (isValidMove(card, tableau[i])) {
+          saveState();
+          tableau[i].addAll(tableau[cursor.x].sublist(cursor.y));
+          tableau[cursor.x].removeRange(cursor.y, tableau[cursor.x].length);
+          if (tableau[cursor.x].isNotEmpty && !tableau[cursor.x].last.faceUp) {
+            tableau[cursor.x].last.faceUp = true;
+          }
+          log('Auto-moved ${card.rank}${suits[card.suit]} to tableau column ${i + 1}');
+          return;
+        }
+      }
+    } else if (cursor.x == 1 && waste.isNotEmpty) {
+      // Try to move from waste pile
+      var card = waste.last;
+
+      // First try foundation
+      var foundation = foundations[card.suit]!;
+      if (isValidFoundationMove(card, foundation)) {
+        saveState();
+        foundation.add(waste.removeLast());
+        log('Auto-moved ${card.rank}${suits[card.suit]} to foundation');
+        return;
+      }
+
+      // Then try tableau
+      for (var i = 0; i < 7; i++) {
+        if (isValidMove(card, tableau[i])) {
+          saveState();
+          tableau[i].add(waste.removeLast());
+          log('Auto-moved ${card.rank}${suits[card.suit]} to tableau column ${i + 1}');
+          return;
+        }
+      }
+    }
+
+    showError('No valid moves available for this card');
   }
 }
 
